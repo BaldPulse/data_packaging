@@ -43,6 +43,7 @@ def rgb_to_mp4(input_folders, numworkds = 4, verbose=False):
 
 if __name__ == "__main__":
     # get the top folder from parsing arguments
+    import sys
     if len(sys.argv) > 1:
         top_folder = sys.argv[1]
     else:
