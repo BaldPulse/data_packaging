@@ -10,9 +10,10 @@ import pandas as pd
 from cv_bridge import CvBridge
 
 class Extractor():
-    def __init__(self) -> None:
+    def __init__(self, compress_depth=True) -> None:
         self.utils = Utils()
         self.bridge = CvBridge()
+        self.compress_depth = compress_depth
         pass
 
     def extract_all(self, bag_name: str, episode_id: str, output_directory: str):
@@ -104,14 +105,15 @@ class Extractor():
                 image = self.bridge.imgmsg_to_cv2(msg, '16UC1')
                 png_path = os.path.join(output_directory, 'depth', f"{episode_id}",f"{timestamp_ros}.png")
                 cv2.imwrite(png_path, image)
-                jxl_path = os.path.join(output_directory, output_depth_png_subdir, f"{timestamp_ros}.jxl")
-                subprocess.run(
-                    ["cjxl", png_path, jxl_path, "-d", "0"], 
-                    check=True,            
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-                os.remove(png_path)
+                if self.compress_depth:
+                    jxl_path = os.path.join(output_directory, output_depth_png_subdir, f"{timestamp_ros}.jxl")
+                    subprocess.run(
+                        ["cjxl", png_path, jxl_path, "-d", "0"], 
+                        check=True,            
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+                    os.remove(png_path)
                 modalities["depth"]["frames"] += 1
         episode_data += str(modalities).replace(",", ";")
         # close csv files
@@ -144,10 +146,17 @@ if __name__ == "__main__":
     import uuid
     import datetime
     import time
-    import sys
-    # read bag file name from arguments
-    bag_name = sys.argv[1]
-    output_folder = sys.argv[2]
+    import argparse
+    parser = argparse.ArgumentParser(description='Extract data from a ROS bag.')
+    parser.add_argument('bag_name', type=str, help='The name of the bag file.')
+    parser.add_argument('output_folder', type=str, help='The folder to store the output.')
+    parser.add_argument('--compress_depth', action='store_true', help='Compress depth images to JXL format.', default=False)
+    args = parser.parse_args()
+
+    bag_name = args.bag_name
+    output_folder = args.output_folder
+    compress_depth = args.compress_depth
+
     tname = bag_name.split('/')[-1].split('.')[0]
     t = datetime.datetime.strptime(tname, "%Y-%m-%d-%H-%M-%S")
     t = time.mktime(t.timetuple())
@@ -163,5 +172,5 @@ if __name__ == "__main__":
         with open(os.path.join(output_folder, 'episodes.csv'), 'w') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(['episode_id', 'duration', 'num_modalities', 'metadata', 'modalities'])
-    extractor = Extractor()
+    extractor = Extractor(compress_depth=compress_depth)
     extractor.extract_all(bag_name, epid, output_folder)

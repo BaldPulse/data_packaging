@@ -17,10 +17,10 @@ def run_process(command, working_directory, verbose = False):
             print(f"Error: {error.strip()}")
 
 
-def batch_process_bags(working_directory, bag_files, output_folder, num_workers=4, verbose=False):
+def batch_process_bags(working_directory, bag_files, output_folder, compress_depth, num_workers=4, verbose=False):
     commands = []
     for bag_file in bag_files:
-        command = f"python3 /media/zhaotang/Files/Tools/data_packaging/extract_rosbag.py {bag_file} {output_folder}"
+        command = f"python3 /media/zhaotang/Files/Tools/data_packaging/extract_rosbag.py {bag_file} {output_folder} {'--compress_depth' if compress_depth else ''}"
         command_with_args = shlex.split(command)
         commands.append(command_with_args)
     l = len(bag_files)
@@ -48,12 +48,14 @@ if __name__ == "__main__":
     parser.add_argument('-o', '--output_folder', type=str, help='The folder to store the output.')
     parser.add_argument('-n', '--num_workers', type=int, default=4, help='The number of workers to use.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Print verbose output.', default=False)
+    parser.add_argument('-c', '--compress_depth', action='store_true', help='Compress depth images to JXL format.', default=False)
     args = parser.parse_args()
 
     data_folder = args.data_folder
     output_folder = args.output_folder
     num_workers = args.num_workers
     verbose = args.verbose
+    compress_depth = args.compress_depth
 
     # get all the .bag files in the data folder and its subfolders
     # return the relative path to the data folder
@@ -76,4 +78,4 @@ if __name__ == "__main__":
             writer.writerow(['episode_id', 'duration', 'num_modalities', 'metadata', 'modalities'])
 
     # run the batch process
-    batch_process_bags(data_folder, bag_files, output_folder, num_workers=num_workers, verbose=verbose)
+    batch_process_bags(data_folder, bag_files[:100], output_folder,compress_depth, num_workers=num_workers, verbose=verbose)
