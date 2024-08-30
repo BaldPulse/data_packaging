@@ -5,7 +5,8 @@ from tqdm import tqdm
 import concurrent.futures
 
 def run_process(command, working_directory, verbose = False):
-    print(f"Starting process: {command}")
+    if verbose:
+        print(f"Starting process: {command}")
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=working_directory)
     output, error = process.communicate()
     if verbose:
@@ -45,10 +46,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Batch process ROS bags.')
     parser.add_argument('-d', '--data_folder', type=str, help='The top folder containing ROS bags.')
     parser.add_argument('-o', '--output_folder', type=str, help='The folder to store the output.')
+    parser.add_argument('-n', '--num_workers', type=int, default=4, help='The number of workers to use.')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Print verbose output.', default=False)
     args = parser.parse_args()
 
     data_folder = args.data_folder
     output_folder = args.output_folder
+    num_workers = args.num_workers
+    verbose = args.verbose
 
     # get all the .bag files in the data folder and its subfolders
     # return the relative path to the data folder
@@ -57,7 +62,6 @@ if __name__ == "__main__":
         for file in files:
             if file.endswith(".bag"):
                 bag_files.append(os.path.relpath(os.path.join(root, file), data_folder))
-    print(bag_files[:4])
 
     modalities = ["motion_capture", "camera_accel", "camera_gyro", "color", "depth"]
     # create the folder structure
@@ -72,4 +76,4 @@ if __name__ == "__main__":
             writer.writerow(['episode_id', 'duration', 'num_modalities', 'metadata', 'modalities'])
 
     # run the batch process
-    batch_process_bags(data_folder, bag_files[:4], output_folder, num_workers=4, verbose=False)
+    batch_process_bags(data_folder, bag_files, output_folder, num_workers=num_workers, verbose=verbose)

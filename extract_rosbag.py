@@ -50,14 +50,14 @@ class Extractor():
         # time stamp data for color images
         color_time_stamps = []
         metadata = {
-            "original_filename": bag_name
+            "rosbag_filename": bag_name
         }
         modalities = {
-            "camera_accel": {"frames": 0, "sensor_model": "accelerometer"},
-            "camera_gyro": {"frames": 0, "sensor_model": "gyroscope"},
-            "color": {"frames": 0, "resolution": "1280*800", "sensor_model": "camera"},
-            "depth": {"frames": 0, "resolution": "1280*800", "sensor_model": "camera"},
-            "motion_capture": {"frames": 0, "sensor_model": "motion_capture"}
+            "camera_accel": {"frames": 0, "sensor_model": "Orbbec Gemini 2 L"},
+            "camera_gyro": {"frames": 0, "sensor_model": "Orbbec Gemini 2 L"},
+            "color": {"frames": 0, "resolution": "1280*800", "sensor_model": "Orbbec Gemini 2 L"},
+            "depth": {"frames": 0, "resolution": "1280*800", "sensor_model": "Orbbec Gemini 2 L"},
+            "motion_capture": {"frames": 0, "sensor_model": "viryn full-body inertial motion capture suit"}
         }
         start_time = bag_file.get_start_time()
         end_time = bag_file.get_end_time()
