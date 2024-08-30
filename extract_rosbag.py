@@ -144,8 +144,10 @@ if __name__ == "__main__":
     import uuid
     import datetime
     import time
-    print("testing Extractor")
-    bag_name = "./test/2024-08-01-11-21-49.bag"
+    import sys
+    # read bag file name from arguments
+    bag_name = sys.argv[1]
+    output_folder = sys.argv[2]
     tname = bag_name.split('/')[-1].split('.')[0]
     t = datetime.datetime.strptime(tname, "%Y-%m-%d-%H-%M-%S")
     t = time.mktime(t.timetuple())
@@ -153,13 +155,13 @@ if __name__ == "__main__":
     modalities = ["motion_capture", "camera_accel", "camera_gyro", "color", "depth"]
     # create the folder structure
     for modality in modalities:
-        modality_folder = os.path.join('./output', modality)
+        modality_folder = os.path.join(output_folder, modality)
         if not os.path.exists(modality_folder):
             os.makedirs(modality_folder)
     # check if episodes.csv exists
-    if not os.path.exists(os.path.join('./output', 'episodes.csv')):
-        with open(os.path.join('./output', 'episodes.csv'), 'w') as csvfile:
+    if not os.path.exists(os.path.join(output_folder, 'episodes.csv')):
+        with open(os.path.join(output_folder, 'episodes.csv'), 'w') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(['episode_id', 'duration', 'num_modalities', 'metadata', 'modalities'])
     extractor = Extractor()
-    extractor.extract_all(bag_name, epid, './output')
+    extractor.extract_all(bag_name, epid, output_folder)
