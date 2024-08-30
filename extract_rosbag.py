@@ -1,409 +1,165 @@
-
 import os
 import csv
 import cv2
 import rosbag
 import subprocess
-import pandas as pd
 from tqdm import tqdm
+from utils import Utils
+import numpy as np
+import pandas as pd
 from cv_bridge import CvBridge
 
-from utils import Utils
-
-def create_path_to_output(output_path):
-    if not os.path.exists(output_path):
-        os.makedirs(output_path)
-
-class ExtractRosbag():
-    def __init__(self, bag_name, episode_id, output_dir=None):
-        print(bag_name)
-        try:
-            self.bag = rosbag.Bag(bag_name, "r")
-        except:
-            #todo write to log
-            raise ValueError(f'{bag_name} Error')
-        self.episode_id = episode_id
-        # check the time of the rosbag
-        self.extract_check_rosbag_time(0, 120)
-        self.bridge = CvBridge()
-        self.bag_name = bag_name
-        self.bag_topics = [topic for topic in self.bag.get_type_and_topic_info().topics]
-        self.output_dir = output_dir
+class Extractor():
+    def __init__(self) -> None:
         self.utils = Utils()
+        self.bridge = CvBridge()
+        pass
 
-    def extract_check_rosbag_time(self, min_time, max_time):
-        duration = 0
-        start_time = self.bag.get_start_time()
-        end_time = self.bag.get_end_time()
-        self.duration = end_time - start_time
-        if duration > max_time:
-            # os.remove(self.bag_name)
-            #todo  write to log
-            with open("mybag_time.txt", "a") as f:
-                f.write(f"{self.bag_name}\n")
-            raise ValueError("rosbag {self.bag_name} is too long")
-        if duration < min_time:
-            # os.remove(self.bag_name)
-            #todo  write to log
-            with open("mybag_time.txt", "a") as f:
-                f.write(f"{self.bag_name}\n")
+    def extract_all(self, bag_name: str, episode_id: str, output_directory: str):
+        '''
+        input:
+        bag_name: str, the name of the bag file
+        episode_id: str, the episode id
+        '''
+        try:
+            bag_file = rosbag.Bag(bag_name, 'r')
+        except:
+            raise ValueError(f"Bag file {bag_name} not found")
+        #todo: maybe we can parameterize topic names
+        # create appropriate csv files
+        camera_accel_csv = open(os.path.join(output_directory, 'camera_accel',f"{episode_id}.csv"), 'w')
+        camera_gyro_csv = open(os.path.join(output_directory, 'camera_gyro',f"{episode_id}.csv"), 'w')
+        motionCapture_scv = open(os.path.join(output_directory, 'motion_capture',f"{episode_id}.csv"), 'w')
+        camera_accel_writer = csv.writer(camera_accel_csv)
+        camera_gyro_writer = csv.writer(camera_gyro_csv)
+        motionCapture_writer = csv.writer(motionCapture_scv)
+        camera_accel_writer.writerow(['timestamp', 'linear_acceleration_x', 'linear_acceleration_y', 'linear_acceleration_z'])
+        camera_gyro_writer.writerow(['timestamp', 'angular_velocity_x', 'angular_velocity_y', 'angular_velocity_z'])
+        motionCapture_title_list = None
 
-    def extract_check_rosbag_frequency(self, *topics):
-        if set(self.bag_topics) == set(topics):
-            print("check the frequency")
-        else:
-            # os.remove(self.bag_name)
-            #todo  write to log
-            raise ValueError("rosbag {self.bag_name} is too short")
+        # create a buffer directory for images
+        output_color_png_subdir = "color/"+episode_id+'/'
+        output_color_png_dir = os.path.join(output_directory, output_color_png_subdir)
+        if not os.path.exists(output_color_png_dir):
+            os.makedirs(output_color_png_dir)
+        output_depth_png_subdir = "depth/"+episode_id+'/'
+        output_depth_png_dir = os.path.join(output_directory, output_depth_png_subdir)
+        if not os.path.exists(output_depth_png_dir):
+            os.makedirs(output_depth_png_dir)
 
-    def extract_check_rosbag_fuzz_testing(self, imagePath, max_variance):
-            # Load the image and convert it to grayscale
-            image = cv2.imread(imagePath)
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            laplacian = cv2.Laplacian(gray, cv2.CV_64F)
-            variance = laplacian.var()
-            if variance > max_variance:
-                print("picture is ok")
-            else:
-                #todo write to log
-                with open("my_fuzz.txt", "a") as f:
-                    f.write(f"{imagePath}\n")
-                raise ValueError("picuture {imagePath} too fuzzing")
-            
-    def extract_imu_accel_from_rosbag(self, topic, output_dir=None):
-        """
-        Extracts IMU acceleration data from a ROS bag file and saves it as a CSV file.
-
-        Parameters:
-        - output_dir (str): The directory path where the CSV file will be saved.
-        - topic (str): The ROS topic name from which to extract data.
-
-        Returns:
-        - None: The function does not return a value but writes the data directly to a CSV file.
-        """
-        if output_dir is None and self.output_dir is None:
-            # TODO: Write to log
-            raise ValueError("Please indicate the output directory!")
-        if topic not in self.bag_topics:
-            topic_list_str = " ".join(self.bag_topics)
-            # TODO: Write to log
-            raise ValueError(f"Wrong ROS topic, please check again. Available topics are: {topic_list_str}")
-        if output_dir is None:
-            output_dir = self.output_dir
-        data = []
-        output_imu_accel_subdir = "imu/"
-        for msg_topic, msg, t in tqdm(self.bag.read_messages(topic), desc=f'Extracting {self.bag_name}'):
+        # time stamp data for color images
+        color_time_stamps = []
+        metadata = {
+            "original_filename": bag_name
+        }
+        modalities = {
+            "camera_accel": {"frames": 0, "sensor_model": "accelerometer"},
+            "camera_gyro": {"frames": 0, "sensor_model": "gyroscope"},
+            "color": {"frames": 0, "resolution": "1280*800", "sensor_model": "camera"},
+            "depth": {"frames": 0, "resolution": "1280*800", "sensor_model": "camera"},
+            "motion_capture": {"frames": 0, "sensor_model": "motion_capture"}
+        }
+        start_time = bag_file.get_start_time()
+        end_time = bag_file.get_end_time()
+        episode_data = episode_id + ", " + str(int(end_time - start_time)) + ", 5, " + str(metadata).replace(",", ";") + ", "
+        for topic, msg, t in tqdm(bag_file.read_messages()):
             timestamp_ros = f"{t.secs}.{t.nsecs:09d}"
-            linear_acceleration_x = msg.linear_acceleration.x
-            linear_acceleration_y = msg.linear_acceleration.y
-            linear_acceleration_z = msg.linear_acceleration.z
-            data.append([
-                timestamp_ros,
-                linear_acceleration_x, linear_acceleration_y, linear_acceleration_z
-            ])
-            df = pd.DataFrame(data, columns=[
-                'ROS_Timestamp',
-                'Linear_Acceleration_x', 'Linear_Acceleration_y', 'Linear_Acceleration_z'
-            ])
-            # create_path_to_output(os.path.join(output_dir, output_imu_accel_subdir))
-            df.to_csv(os.path.join(output_dir, output_imu_accel_subdir, self.episode_id+'.csv'), index=False)
-
-    def extract_imu_gyro_from_rosbag(self, topic, output_dir=None):
-        """
-        Extracts IMU gyroscope data from a ROS bag file and saves it as a CSV file.
-
-        Parameters:
-        - output_dir (str): The directory path where the CSV file will be saved.
-        - topic (str): The ROS topic name from which to extract data.
-
-        Returns:
-        - None: The function does not return a value but writes the data directly to a CSV file.
-        """
-        if output_dir is None and self.output_dir is None:
-            # TODO: Write to log
-            raise ValueError("Please indicate the output directory!")
-        if topic not in self.bag_topics:
-            topic_list_str = " ".join(self.bag_topics)
-            # TODO: Write to log
-            raise ValueError(f"Wrong ROS topic, please check again. Available topics are: {topic_list_str}")
-        if output_dir is None:
-            output_dir = self.output_dir        
-        data = []
-        output_imu_gyro_subdir =  "imu/"
-        for msg_topic, msg, t in tqdm(self.bag.read_messages(topic), desc=f'Extracting {self.bag_name}'):
-            timestamp_ros = f"{t.secs}.{t.nsecs:09d}"
-            angular_velocity_x = msg.angular_velocity.x
-            angular_velocity_y = msg.angular_velocity.y
-            angular_velocity_z = msg.angular_velocity.z
-            data.append([
-                timestamp_ros,
-                angular_velocity_x, angular_velocity_y, angular_velocity_z,
-            ])
-            df = pd.DataFrame(data, columns=[
-                'ROS_Timestamp',
-                'Angular_Velocity_x', 'Angular_Velocity_y', 'Angular_Velocity_z',
-            ])
-            # create_path_to_output(os.path.join(output_dir, output_imu_gyro_subdir))
-            df.to_csv(os.path.join(output_dir, output_imu_gyro_subdir, self.episode_id+'.csv'), index=False)
-
-    def extract_color_images_from_rosbag(self, topic, output_dir=None):
-        """
-        Extracts color images from a ROS bag file and saves them as PNG files.
-
-        Parameters:
-        - output_dir (str): The directory path where the PNG images will be saved.
-        - topic (str): The ROS topic name from which to extract image data.
-
-        Returns:
-        - None: The function does not return a value but saves the images as PNG files.
-        """
-        if output_dir is None and self.output_dir is None:
-            # TODO: Write to log
-            raise ValueError("Please indicate the output directory!")
-        if topic not in self.bag_topics:
-            topic_list_str = " ".join(self.bag_topics)
-            # TODO: Write to log
-            raise ValueError(f"Wrong ROS topic, please check again. Available topics are: {topic_list_str}")
-        if output_dir is None:
-            output_dir = self.output_dir
-        output_color_jpeg_subdir = "color/"
-        timelist = []
-        for msg_topic, msg, t in tqdm(self.bag.read_messages(topic), desc=f'Extracting {self.bag_name}'):
-            timestamp_ros = f"{t.secs}.{t.nsecs:09d}"
-            cv_image = self.bridge.compressed_imgmsg_to_cv2(msg, "bgr8")
-            # create_path_to_output(os.path.join(output_dir, output_color_jpeg_subdir))
-            cv2.imwrite(os.path.join(output_dir, output_color_jpeg_subdir, f"{timestamp_ros}.jpeg"), cv_image)
-            timelist.append(f"{timestamp_ros}.jpeg")
-        self.utils.compress_jpeg_to_mp4(timelist, os.path.join(output_dir, output_color_jpeg_subdir), )
-
-    def extract_depth_images_from_rosbag(self, topic, output_dir=None):
-        """
-        Extracts depth images from a ROS bag file and saves them as PNG files.
-
-        Parameters:
-        - output_dir (str): The directory path where the PNG images will be saved.
-        - topic (str): The ROS topic name from which to extract image data.
-
-        Returns:
-        - None: The function does not return a value but saves the images as PNG files.
-        """
-        if output_dir is None and self.output_dir is None:
-            # TODO: Write to log
-            raise ValueError("Please indicate the output directory!")
-        if topic not in self.bag_topics:
-            topic_list_str = " ".join(self.bag_topics)
-            # TODO: Write to log
-            raise ValueError(f"Wrong ROS topic, please check again. Available topics are: {topic_list_str}")
-        if output_dir is None:
-            output_dir = self.output_dir
-        output_depth_png_subdir = "depth/"+self.episode_id+'/'
-        for msg_topic, msg, t in tqdm(self.bag.read_messages(topic), desc=f'Extracting {self.bag_name}'):
-            timestamp_ros = f"{t.secs}.{t.nsecs:09d}"
-            cv_image = self.bridge.imgmsg_to_cv2(msg, '16UC1')
-            # create_path_to_output(os.path.join(output_dir, output_depth_png_subdir))
-            cv2.imwrite(os.path.join(output_dir, output_depth_png_subdir, f"{timestamp_ros}.png"), cv_image)
-            input_file = os.path.join(output_dir, output_depth_png_subdir, f"{timestamp_ros}.png")
-            output_file = os.path.join(output_dir, output_depth_png_subdir, f"{timestamp_ros}.jxl")
-            subprocess.run(
-                ["cjxl", input_file, output_file, "-d", "0"], 
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            os.remove(input_file)
-            # tar the folder
-            subprocess.run(
-                ["tar", "-cvf", f"{output_dir}/depth/{self.episode_id}.tar.gz", f"{output_dir}/{output_depth_png_subdir}"],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            # remove the folder
-            subprocess.run(
-                ["rm", "-rf", f"{output_dir}/{output_depth_png_subdir}"],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            
-
-    def extract_vdmsg_bag_from_rosbag(self, topic, output_dir=None):
-        """
-        Extracts VDMSG data from a ROS bag file and saves it to a CSV file.
-
-        Parameters:
-        - topic (str): The ROS topic from which to extract VDMSG data.
-        - output_dir (str, optional): The directory where the CSV file will be saved. If not provided, it uses `self.output_dir`.
-
-        Returns:
-        - None: The function does not return a value but saves the data to a CSV file.
-        """
-        if output_dir is None and self.output_dir is None:
-            # TODO: Write to log
-            raise ValueError("Please indicate the output directory!")
-        
-        if topic not in self.bag_topics:
-            topic_list_str = " ".join(self.bag_topics)
-            # TODO: Write to log
-            raise ValueError(f"Invalid ROS topic. Available topics are: {topic_list_str}")
-        
-        if output_dir is None:
-            output_dir = self.output_dir
-        
-        # Create the output directory and subdirectory for VDMSG data
-        output_vdmsg_subdir = os.path.join(output_dir, "motionCapture")
-        os.makedirs(output_vdmsg_subdir, exist_ok=True)
-        output_csv = os.path.join(output_vdmsg_subdir, self.episode_id+".csv")
-        
-        title_list = None
-        timestamp_list = []
-        
-        # Open the CSV file for writing
-        with open(output_csv, 'w', newline='') as csvfile:
-            csvwriter = csv.writer(csvfile)
-            
-            # Iterate through the messages in the ROS bag file
-            for msg_topic, msg, t in tqdm(self.bag.read_messages(topic), desc=f'Extracting {self.bag_name}'):
-                # Extract the timestamp
-                timestamp_ros = f"{t.secs}.{t.nsecs:09d}"
-                timestamp_list.append(timestamp_ros)
-                
-                # Write the CSV header
-                if title_list is None:
-                    title_list = self.utils.extract_vdmsg_bag_position_msg_title_list("", "lhand_", "rhand_", msg)
-                    csvwriter.writerow(['timestamp'] + title_list)
-                
-                # Extract frame data and write to CSV
-                frame_data = self.utils.extract_vdmsg_bag_position_msg_frame_data(msg)
-                csvwriter.writerow([timestamp_ros] + frame_data)
-
-    def extract_all(self, output_dir=None, *topics):
-        """
-        Extracts data from multiple ROS topics and saves them in appropriate formats.
-
-        Parameters:
-        - output_dir (str): The directory path where the data will be saved.
-        - topics (tuple): The ROS topics from which to extract data.
-
-        Returns:
-        - None: The function does not return a value but saves the data to files.
-        """
-        if output_dir is None and self.output_dir is None:
-            # TODO: Write to log
-            raise ValueError("Please indicate the output directory!")
-        
-        if output_dir is None:
-            output_dir = self.output_dir
-
-        for topic in topics:
-            if topic not in self.bag_topics:
-                # TODO: Write to log
-                raise ValueError(f"{topic} not in {self.bag_name}")
-        
-        output_csv, csvfile = None, None
-        timelist = []
-        accel_data = []
-        gyro_data = []
-        for msg_topic, msg, t in tqdm(self.bag.read_messages(), desc=f'Extracting {self.bag_name}'):
-            timestamp_ros = f"{t.secs}.{t.nsecs:09d}"
-            
-            if msg_topic == "/camera/accel/sample":
+            #todo: switch statements
+            if topic == "/camera/accel/sample":
                 # Extract IMU acceleration data
-                output_imu_accel_subdir = "camera_accel/"
-                linear_acceleration_x = msg.linear_acceleration.x
-                linear_acceleration_y = msg.linear_acceleration.y
-                linear_acceleration_z = msg.linear_acceleration.z
-                accel_data.append([
-                    timestamp_ros,
-                    linear_acceleration_x, linear_acceleration_y, linear_acceleration_z
-                ])
+                camera_accel_writer.writerow([timestamp_ros, 
+                                              msg.linear_acceleration.x, 
+                                              msg.linear_acceleration.y, 
+                                              msg.linear_acceleration.z])
+                modalities["camera_accel"]["frames"] += 1
 
-            elif msg_topic == "/camera/gyro/sample":
+            elif topic == "/camera/gyro/sample":
                 # Extract IMU gyroscope data
-                output_imu_gyro_subdir = "camera_gyro/"
-                angular_velocity_x = msg.angular_velocity.x
-                angular_velocity_y = msg.angular_velocity.y
-                angular_velocity_z = msg.angular_velocity.z
-                gyro_data.append([
-                    timestamp_ros,
-                    angular_velocity_x, angular_velocity_y, angular_velocity_z,
-                ])
+                camera_gyro_writer.writerow([timestamp_ros, 
+                                             msg.angular_velocity.x, 
+                                             msg.angular_velocity.y, 
+                                             msg.angular_velocity.z])
+                modalities["camera_gyro"]["frames"] += 1
 
-            elif msg_topic == "/camera/color/image_raw/compressed":
+            elif topic == "/vdmsg":
+                # Get title name if it is not already extracted
+                if motionCapture_title_list is None:
+                    motionCapture_title_list = self.utils.extract_vdmsg_bag_position_msg_title_list("", "lhand_", "rhand_", msg)
+                    motionCapture_writer.writerow(['timestamp'] + motionCapture_title_list)
+                # Extract motion capture data
+                frame_data = self.utils.extract_vdmsg_bag_position_msg_frame_data(msg)
+                motionCapture_writer.writerow([timestamp_ros] + frame_data)
+                modalities["motion_capture"]["frames"] += 1
+            
+            # and non csv data
+            elif topic == "/camera/color/image_raw/compressed":
                 # Extract color images
-                output_color_jpeg_subdir = "color/"+self.episode_id+'/'
-                cv_image = self.bridge.compressed_imgmsg_to_cv2(msg, "bgr8")
-                create_path_to_output(os.path.join(output_dir, output_color_jpeg_subdir))
-                cv2.imwrite(os.path.join(output_dir, output_color_jpeg_subdir, f"{timestamp_ros}.jpeg"), cv_image)
-                timelist.append(f"{timestamp_ros}.jpeg")
-                    
-            elif msg_topic == "/camera/depth/image_raw":
+                image = cv2.imdecode(np.frombuffer(msg.data, np.uint8), cv2.IMREAD_COLOR)
+                cv2.imwrite(os.path.join(output_directory, 'color', f"{episode_id}",f"{timestamp_ros}.png"), image)
+                color_time_stamps.append(timestamp_ros)
+                modalities["color"]["frames"] += 1
+            
+            elif topic == "/camera/depth/image_raw":
                 # Extract depth images
-                output_depth_png_subdir = "depth/"+self.episode_id+'/'
-                cv_image = self.bridge.imgmsg_to_cv2(msg, '16UC1')
-                create_path_to_output(os.path.join(output_dir, output_depth_png_subdir))
-                cv2.imwrite(os.path.join(output_dir, output_depth_png_subdir, f"{timestamp_ros}.png"), cv_image)
-                input_file = os.path.join(output_dir, output_depth_png_subdir, f"{timestamp_ros}.png")
-                output_file = os.path.join(output_dir, output_depth_png_subdir, f"{timestamp_ros}.jxl")
+                image = self.bridge.imgmsg_to_cv2(msg, '16UC1')
+                png_path = os.path.join(output_directory, 'depth', f"{episode_id}",f"{timestamp_ros}.png")
+                cv2.imwrite(png_path, image)
+                jxl_path = os.path.join(output_directory, output_depth_png_subdir, f"{timestamp_ros}.jxl")
                 subprocess.run(
-                    ["cjxl", input_file, output_file, "-d", "0"], 
+                    ["cjxl", png_path, jxl_path, "-d", "0"], 
                     check=True,            
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
                 )
-                
-                os.remove(input_file)
+                os.remove(png_path)
+                modalities["depth"]["frames"] += 1
+        episode_data += str(modalities).replace(",", ";")
+        # close csv files
+        camera_accel_csv.close()
+        camera_gyro_csv.close()
+        motionCapture_scv.close()
 
-            elif msg_topic == "/vdmsg":
-                # Extract motion capture data
-                if output_csv is None:
-                    output_vdmsg_subdir = os.path.join(output_dir, "motionCapture")
-                    os.makedirs(output_vdmsg_subdir, exist_ok=True)
-                    output_csv = os.path.join(output_vdmsg_subdir, self.episode_id+".csv")
-                    title_list = None
-                    csvfile = open(output_csv, 'w', newline='')
-                    csvwriter = csv.writer(csvfile)
-                timestamp_list = []
-                timestamp_ros = f"{t.secs}.{t.nsecs:09d}"
-                timestamp_list.append(timestamp_ros)
-                if title_list is None:
-                    title_list = self.utils.extract_vdmsg_bag_position_msg_title_list("", "lhand_", "rhand_", msg)
-                    csvwriter.writerow(['timestamp'] + title_list)
-                frame_data = self.utils.extract_vdmsg_bag_position_msg_frame_data(msg)
-                csvwriter.writerow([timestamp_ros] + frame_data)
-
-        if os.path.exists(output_csv):
-            csvfile.close()
-            print("Data saved to CSV")
-        else:
-            print("No data saved to CSV")
-
-        df = pd.DataFrame(accel_datadata, columns=[
-            'ROS_Timestamp',
-            'Linear_Acceleration_x', 'Linear_Acceleration_y', 'Linear_Acceleration_z'
-        ])
-        df.to_csv(os.path.join(output_dir, output_imu_accel_subdir, 'camera_accel.csv'), index=False)
-        df = pd.DataFrame(gyro_data, columns=[
-            'ROS_Timestamp',
-            'Angular_Velocity_x', 'Angular_Velocity_y', 'Angular_Velocity_z',
-        ])
-        df.to_csv(os.path.join(output_dir, output_imu_gyro_subdir, self.episode_id+'.csv'), index=False)
-        
-        # tar the folder
-        # subprocess.run(
-        #     ["tar", "-cvf",f"../{self.episode_id}.tar",  f"."],
-        #     cwd= "{output_dir}/{output_depth_png_subdir}",
-        #     check=True,
-        #     stdout=subprocess.DEVNULL,
-        #     stderr=subprocess.DEVNULL
-        # )
-        # remove the folder
+        # compress color images to mp4
+        self.utils.compress_images_to_mp4(color_time_stamps, output_color_png_dir, os.path.join(output_directory, "color"), episode_id)
+        # tar depth images
         subprocess.run(
-            ["rm", "-rf", f"{output_dir}/{output_depth_png_subdir}"],
+            ["tar", "-cvf",f"../{episode_id}.tar",  f"."],
+            cwd= f"{output_directory}/{output_depth_png_subdir}",
             check=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
-        output_color_jpeg_subdir = "color/"+self.episode_id+'/'
-        self.utils.compress_jpeg_to_mp4(timelist, os.path.join(output_dir, output_color_jpeg_subdir), os.path.join(output_dir, "color/"), self.episode_id)
+        subprocess.run(
+            ["rm", "-rf", f"{output_directory}/{output_depth_png_subdir}"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        # dump high level episode data
+        with open(os.path.join(output_directory, 'episodes.csv'), 'a') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(episode_data.split(","))
 
+if __name__ == "__main__":
+    import uuid
+    import datetime
+    import time
+    print("testing Extractor")
+    bag_name = "./test/2024-08-01-11-21-49.bag"
+    tname = bag_name.split('/')[-1].split('.')[0]
+    t = datetime.datetime.strptime(tname, "%Y-%m-%d-%H-%M-%S")
+    t = time.mktime(t.timetuple())
+    epid = str(uuid.uuid1(node=uuid.getnode(),clock_seq=int(t)))
+    modalities = ["motion_capture", "camera_accel", "camera_gyro", "color", "depth"]
+    # create the folder structure
+    for modality in modalities:
+        modality_folder = os.path.join('./output', modality)
+        if not os.path.exists(modality_folder):
+            os.makedirs(modality_folder)
+    # check if episodes.csv exists
+    if not os.path.exists(os.path.join('./output', 'episodes.csv')):
+        with open(os.path.join('./output', 'episodes.csv'), 'w') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['episode_id', 'duration', 'num_modalities', 'metadata', 'modalities'])
+    extractor = Extractor()
+    extractor.extract_all(bag_name, epid, './output')

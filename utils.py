@@ -60,9 +60,9 @@ class Utils():
         title_list_temp = expanded_body_name + expanded_lhand_name + expanded_rhand_name
         return title_list_temp
 
-    def compress_jpeg_to_mp4(self, input_timelist, input_dir, output_dir, epid):
+    def compress_images_to_mp4(self, input_timelist, input_dir, output_dir, epid, image_type='png'):
         command = (
-                    f"ffmpeg -y -framerate 30 -pattern_type glob -i '{input_dir}/*.jpeg' "
+                    f"ffmpeg -y -framerate 30 -pattern_type glob -i '{input_dir}/*.{image_type}' "
                     f"-c:v libx265 -pix_fmt yuv420p {input_dir}/data.mp4 "
                     f"-progress pipe:1 -nostats -loglevel 0"
                 )
@@ -142,4 +142,3 @@ class Utils():
                 subprocess.run(["djxl", file_path, output_file])
 
         print(f"All JPEG XL files have been successfully decompressed to PNG files and stored in {output_dir}.")
-
