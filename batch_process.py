@@ -20,7 +20,7 @@ def run_process(command, working_directory, verbose = False):
 def batch_process_bags(working_directory, bag_files, output_folder, compress_depth, num_workers=4, verbose=False):
     commands = []
     for bag_file in bag_files:
-        command = f"python3 /media/zhaotang/Files/Tools/data_packaging/extract_rosbag.py {bag_file} {output_folder} \
+        command = f"python3 extract_rosbag.py {bag_file} {output_folder} \
         {'--compress_depth' if compress_depth else ''}"
         command_with_args = shlex.split(command)
         commands.append(command_with_args)
