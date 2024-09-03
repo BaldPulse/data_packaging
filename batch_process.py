@@ -79,4 +79,4 @@ if __name__ == "__main__":
             writer.writerow(['episode_id', 'duration', 'num_modalities', 'metadata', 'modalities'])
 
     # run the batch process
-    batch_process_bags(data_folder, bag_files[:100], output_folder,compress_depth, num_workers=num_workers, verbose=verbose)
+    batch_process_bags(data_folder, bag_files, output_folder,compress_depth, num_workers=num_workers, verbose=verbose)
