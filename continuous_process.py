@@ -31,21 +31,22 @@ def find_new_bags(data_folder, latest_bag_date):
     for root, dirs, files in os.walk(data_folder):
         for file in files:
             if file.endswith(".bag"):
-                bag_files.append(os.path.relpath(os.path.join(root, file), data_folder))
+                bag_files.append(os.path.join(root, file))
     # sort the bag files by date
     bag_files.sort()
     new_bags = []
     for bag_file in bag_files:
-        bag_date = bag_file.split("/")[-1]
+        bag_date = bag_file.split("/")[-1].split(".")[0]
         if bag_date > latest_bag_date:
             new_bags.append(bag_file)
     return new_bags
 
-def consumer(consumer_id, output_folder, log_file, compress_depth=False, verbose=False):
+def consumer(consumer_id, output_folder, buffer_folder, log_file, compress_depth=False, verbose=False):
     while not stop_flag.is_set():
         try:
             bag_file = bag_queue.get(timeout=1)
-            command = f"python3 extract_rosbag.py {bag_file} {output_folder} \
+            thread_bag_on_hand[consumer_id] = bag_file.split("/")[-1].split(".")[0]
+            command = f"python3 extract_rosbag.py {bag_file} {output_folder} {buffer_folder} \
             {'--compress_depth' if compress_depth else ''}"
             command_with_args = shlex.split(command)
             if verbose:
@@ -56,13 +57,13 @@ def consumer(consumer_id, output_folder, log_file, compress_depth=False, verbose
             # if the verbose flag is set, write the output to the log file
             if verbose:
                 with open(log_file, "a") as f:
+                    f.write(f"------{datetime.datetime.now()}------\n")
                     f.write(f"Consumer {consumer_id} output: {process.stdout.read()}")
                     f.write(f"Consumer {consumer_id} error: {process.stderr.read()}")
             # mark the task as done
             bag_queue.task_done()
-            thread_bag_on_hand[consumer_id] = bag_file.split("/")[-1].split(".")[0]
+            thread_bag_on_hand[consumer_id] = None # this thread is free
         except queue.Empty:
-            # if the queue is empty, sleep for 4 second
             time.sleep(4)
 
 def signal_handler(sig, frame):
@@ -70,9 +71,6 @@ def signal_handler(sig, frame):
     print("\033[92m" + "Exit command recieved..." + "\033[0m")
     # set the stop flag
     stop_flag.set()
-    # scrub the buffer folder
-    print("Scrubbing buffer folder...")
-    subprocess.run(["rm", "-rf", f"{args.buffer_folder}/*"], check=True)
     # wait for the threads to finish for 20 seconds
     print("Waiting for threads to finish...")
     for thread in thread_pool:
@@ -87,12 +85,36 @@ def signal_handler(sig, frame):
                 sys.exit(0)
             else:
                 print("waiting for threads to finish to exit gracefully...")
-    # write the latest bag date to the cache file
-    print("Writing latest bag date to the cache file...")
+    # write the exit state to the cache file
+    print("Caching exit state...")
     with open(cache_file, "w") as f:
-        f.write(thread_bag_on_hand.sort()[-1]) # we want the latest
+        # sort the thread_bag_on_hand list ignoring None values
+        sorted_bag_on_hand = sorted([bag for bag in thread_bag_on_hand if bag is not None])
+        for bag in sorted_bag_on_hand:
+            f.write(f"{bag}\n")
     # exit the program
+    print("\033[92m" + "Process exited gracefully" + "\033[0m")
     sys.exit(0)
+
+def recover_from_cache(cache_file):
+    latest_bag_date = None
+    if os.path.exists(cache_file):
+        # read the file line by line into a list
+        with open(cache_file, "r") as f:
+            lines = f.readlines()
+        if lines:
+            latest_bag_date = lines[-1].split("/")[-1].split(".")[0].strip # the last line is the latest bag date
+        # add the bags to the queue
+        for line in lines:
+            bag_queue.put(line.strip())
+        # the date is in the format YYYY-MM-DD-HH-MM-SS
+    # check if the date is valid
+    if latest_bag_date is not None:
+        try:
+            datetime.datetime.strptime(latest_bag_date, "%Y-%m-%d-%H-%M-%S")
+        except ValueError:
+            latest_bag_date = None
+    return latest_bag_date
 
 
 if __name__ == "__main__":
@@ -109,6 +131,7 @@ if __name__ == "__main__":
 
     data_folder = args.data_folder
     output_folder = args.output_folder
+    buffer_folder = args.buffer_folder
     num_workers = args.num_workers
     verbose = args.verbose
     compress_depth = args.compress_depth
@@ -120,29 +143,19 @@ if __name__ == "__main__":
     if not os.path.exists(output_folder):
         raise FileNotFoundError(f"The output folder {output_folder} does not exist.")
     # check if the buffer folder exists
-    if not os.path.exists(args.buffer_folder):
-        raise FileNotFoundError(f"The buffer folder {args.buffer_folder} does not exist.")
+    if not os.path.exists(buffer_folder):
+        raise FileNotFoundError(f"The buffer folder {buffer_folder} does not exist.")
 
-    # retrieve the lastest bag date from the buffer folder
+    # recover from the last exit state 
     # look for a .cache file in the buffer folder
-    cache_file = os.path.join(args.buffer_folder, ".cache")
-    latest_bag_date = None
-    if os.path.exists(cache_file):
-        with open(cache_file, "r") as f:
-            latest_bag_date = f.read().strip()
-    # the date is in the format YYYY-MM-DD-HH-MM-SS
-    # check if the date is valid
-    if latest_bag_date is not None:
-        try:
-            datetime.datetime.strptime(latest_bag_date, "%Y-%m-%d-%H-%M-%S")
-        except ValueError:
-            latest_bag_date = None
+    cache_file = os.path.join(buffer_folder, ".cache")
+    latest_bag_date = recover_from_cache(cache_file)
+    
     # if the verbose flag is set, print the latest bag date
     if verbose:
         print(f"Latest bag date: {latest_bag_date}")
         # also create a log file in the buffer folder for verbose output
-        log_file = os.path.join(args.buffer_folder, "log.txt")
-
+        log_file = os.path.join(buffer_folder, "log.txt")
     
     #TODO: get current date and only process bags that are generated today
     
@@ -152,7 +165,7 @@ if __name__ == "__main__":
     # create the consumer threads
     print(f'Starting {num_workers} consumer threads...')
     for i in range(num_workers):
-        thread = threading.Thread(target=consumer, args=(i, output_folder, log_file, compress_depth, verbose), daemon=True)
+        thread = threading.Thread(target=consumer, args=(i, output_folder, buffer_folder, log_file, compress_depth, verbose), daemon=True)
         thread.start()
         thread_pool.append(thread)
         thread_bag_on_hand.append(None)

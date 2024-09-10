@@ -137,10 +137,8 @@ class Extractor():
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
-        # dump high level episode data
-        with open(os.path.join(output_directory, 'episodes.csv'), 'a') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(episode_data.split(","))
+        # return high level episode data
+        return episode_data
 
 if __name__ == "__main__":
     import uuid
@@ -150,11 +148,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Extract data from a ROS bag.')
     parser.add_argument('bag_name', type=str, help='The name of the bag file.')
     parser.add_argument('output_folder', type=str, help='The folder to store the output.')
+    parser.add_argument('buffer_folder', type=str, help='The buffer folder for intermediat operations.')
     parser.add_argument('--compress_depth', action='store_true', help='Compress depth images to JXL format.', default=False)
     args = parser.parse_args()
 
     bag_name = args.bag_name
     output_folder = args.output_folder
+    buffer_folder = args.buffer_folder
     compress_depth = args.compress_depth
 
     tname = bag_name.split('/')[-1].split('.')[0]
@@ -167,10 +167,25 @@ if __name__ == "__main__":
         modality_folder = os.path.join(output_folder, modality)
         if not os.path.exists(modality_folder):
             os.makedirs(modality_folder)
+    for modality in modalities:
+        modality_folder = os.path.join(buffer_folder, modality)
+        if not os.path.exists(modality_folder):
+            os.makedirs(modality_folder)
     # check if episodes.csv exists
     if not os.path.exists(os.path.join(output_folder, 'episodes.csv')):
         with open(os.path.join(output_folder, 'episodes.csv'), 'w') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(['episode_id', 'duration', 'num_modalities', 'metadata', 'modalities'])
     extractor = Extractor(compress_depth=compress_depth)
-    extractor.extract_all(bag_name, epid, output_folder)
+    episode_data =  extractor.extract_all(bag_name, epid, buffer_folder)
+    with open(os.path.join(output_folder, 'episodes.csv'), 'a') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(episode_data.split(","))
+    # move the files from the buffer folder to the output folder
+    for modality in modalities:
+        subprocess.run(
+            ["mv","-f", f"{buffer_folder}/{modality}/{epid}.*", f"{output_folder}/{modality}"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
