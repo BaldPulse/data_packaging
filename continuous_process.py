@@ -41,7 +41,7 @@ def find_new_bags(data_folder, latest_bag_date):
             new_bags.append(bag_file)
     return new_bags
 
-def consumer(consumer_id, output_folder, buffer_folder, log_file, compress_depth=False, verbose=False):
+def consumer(consumer_id, output_folder, buffer_folder, compress_depth=False, verbose=False, log_file=None):
     while not stop_flag.is_set():
         try:
             bag_file = bag_queue.get(timeout=1)
@@ -159,6 +159,7 @@ if __name__ == "__main__":
     latest_bag_date = recover_from_cache(cache_file)
     
     # if the verbose flag is set, print the latest bag date
+    log_file = None
     if verbose:
         print(f"Latest bag date: {latest_bag_date}")
         # also create a log file in the buffer folder for verbose output
@@ -181,7 +182,7 @@ if __name__ == "__main__":
     print(f'Starting {num_workers} consumer threads...')
     for i in range(num_workers):
         thread_bag_on_hand.append(None)
-        thread = threading.Thread(target=consumer, args=(i, output_folder, buffer_folder, log_file, compress_depth, verbose), daemon=True)
+        thread = threading.Thread(target=consumer, args=(i, output_folder, buffer_folder, compress_depth, verbose, log_file), daemon=True)
         thread.start()
         thread_pool.append(thread)
 
