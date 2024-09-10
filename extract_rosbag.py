@@ -183,6 +183,9 @@ if __name__ == "__main__":
         writer = csv.writer(csvfile)
         writer.writerow(episode_data.split(","))
     # move the files from the buffer folder to the output folder
+    # when this process starts, we ignore interruptions
+    import signal
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     for i in range(len(modalities)):
         p = subprocess.run(
             ["mv","-f", f"{buffer_folder}/{modalities[i]}/{epid}.{extensions[i]}", f"{output_folder}/{modalities[i]}/"],

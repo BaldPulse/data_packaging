@@ -11,6 +11,7 @@ import queue
 
 bag_queue = queue.Queue()
 stop_flag = threading.Event()
+thread_error_flag = threading.Event()
 thread_pool = []
 thread_bag_on_hand = []
 
@@ -43,16 +44,19 @@ def find_new_bags(data_folder, latest_bag_date):
 
 def consumer(consumer_id, output_folder, buffer_folder, compress_depth=False, verbose=False, log_file=None):
     while not stop_flag.is_set():
+        if thread_bag_on_hand[consumer_id] is not None:
+            # this indicates that there was an error in the previous run
+            thread_error_flag.set() # set the error flag
+            return # exit the thread
         try:
             bag_file = bag_queue.get(timeout=1)
-            thread_bag_on_hand[consumer_id] = bag_file.split("/")[-1].split(".")[0]
+            thread_bag_on_hand[consumer_id] = bag_file
             command = f"python3 extract_rosbag.py {bag_file} {output_folder} {buffer_folder} \
             {'--compress_depth' if compress_depth else ''}"
             command_with_args = shlex.split(command)
             if verbose:
                 print(f"Processing {bag_file}...")
             process = subprocess.Popen(command_with_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            # wait for the process to finish
             process.wait()
             # if the verbose flag is set, write the output to the log file
             if verbose:
@@ -60,9 +64,9 @@ def consumer(consumer_id, output_folder, buffer_folder, compress_depth=False, ve
                     f.write(f"------{datetime.datetime.now()}------\n")
                     f.write(f"Consumer {consumer_id} output: {process.stdout.read()}")
                     f.write(f"Consumer {consumer_id} error: {process.stderr.read()}")
-            # mark the task as done
-            bag_queue.task_done()
-            thread_bag_on_hand[consumer_id] = None # this thread is free
+            if process.returncode == 0:
+                bag_queue.task_done() # mark the task as done
+                thread_bag_on_hand[consumer_id] = None # this thread is free
         except queue.Empty:
             time.sleep(4)
 
@@ -182,7 +186,7 @@ if __name__ == "__main__":
     print(f'Starting {num_workers} consumer threads...')
     for i in range(num_workers):
         thread_bag_on_hand.append(None)
-        thread = threading.Thread(target=consumer, args=(i, output_folder, buffer_folder, compress_depth, verbose, log_file), daemon=True)
+        thread = threading.Thread(target=consumer, args=(i, output_folder, buffer_folder, compress_depth, verbose, log_file), daemon=False)
         thread.start()
         thread_pool.append(thread)
 
@@ -191,6 +195,10 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
     # main execution loop for producer
     while True:
+        # check if there is a problem with the threads
+        if thread_error_flag.is_set():
+            print("There was an error in one of the threads. Exiting...")
+            break
         # get the list of new bags
         new_bags = find_new_bags(data_folder, latest_bag_date)
         # update the latest bag date
@@ -200,5 +208,25 @@ if __name__ == "__main__":
         for bag in new_bags:
             bag_queue.put(bag)
 
+    stop_flag.set()
+    for thread in thread_pool:
+        thread.join()
+    
+    print("\033[91m" + "Error caught in process" + "\033[0m")
+    print("Caching exit state...")
+    with open(cache_file, "w") as f:
+        # sort the thread_bag_on_hand list ignoring None values
+        sorted_bag_on_hand = sorted([bag for bag in thread_bag_on_hand if bag is not None])
+        for bag in sorted_bag_on_hand:
+            f.write(f"{bag}\n")
+        # also write all the bags in the queue
+        while not bag_queue.empty():
+            bag = bag_queue.get()
+            f.write(f"{bag}\n")
+        # as well as the latest bag date
+        f.write(f"{latest_bag_date}\n")
+    # print a line in red color
+    print("\033[91m" + "Process exited gracefully" + "\033[0m")
+    sys.exit(1)
 
         
