@@ -2,6 +2,7 @@ import subprocess
 import shlex
 import os
 from tqdm import tqdm
+import datetime
 import concurrent.futures
 
 def run_process(command, working_directory, verbose = False):
@@ -47,6 +48,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Batch process ROS bags.')
     parser.add_argument('-d', '--data_folder', type=str, help='The top folder containing ROS bags.')
     parser.add_argument('-o', '--output_folder', type=str, help='The folder to store the output.')
+    parser.add_argument('-b', '--buffer_folder', type=str, help='The folder to store the buffer files.')
     parser.add_argument('-n', '--num_workers', type=int, default=4, help='The number of workers to use.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Print verbose output.', default=False)
     parser.add_argument('-c', '--compress_depth', action='store_true', help='Compress depth images to JXL format.', default=False)
@@ -57,6 +59,32 @@ if __name__ == "__main__":
     num_workers = args.num_workers
     verbose = args.verbose
     compress_depth = args.compress_depth
+
+    # check if the data folder exists
+    if not os.path.exists(data_folder):
+        raise FileNotFoundError(f"The data folder {data_folder} does not exist.")
+    # check if the output folder exists
+    if not os.path.exists(output_folder):
+        raise FileNotFoundError(f"The output folder {output_folder} does not exist.")
+    # check if the buffer folder exists
+    if not os.path.exists(args.buffer_folder):
+        raise FileNotFoundError(f"The buffer folder {args.buffer_folder} does not exist.")
+
+    # retrieve the lastest bag date from the buffer folder
+    # look for a .cache file in the buffer folder
+    cache_file = os.path.join(args.buffer_folder, ".cache")
+    latest_bag_date = None
+    if os.path.exists(cache_file):
+        with open(cache_file, "r") as f:
+            latest_bag_date = f.read().strip()
+    # the date is in the format YYYY-MM-DD-HH-MM-SS
+    # check if the date is valid
+    if latest_bag_date is not None:
+        try:
+            datetime.datetime.strptime(latest_bag_date, "%Y-%m-%d-%H-%M-%S")
+        except ValueError:
+            latest_bag_date = None
+
 
     # get all the .bag files in the data folder and its subfolders
     # return the relative path to the data folder
