@@ -162,6 +162,7 @@ if __name__ == "__main__":
     t = time.mktime(t.timetuple())
     epid = str(uuid.uuid1(node=uuid.getnode(),clock_seq=int(t)))
     modalities = ["motion_capture", "camera_accel", "camera_gyro", "color", "depth"]
+    extensions = ["csv", "csv", "csv", "mp4", "tar"]
     # create the folder structure
     for modality in modalities:
         modality_folder = os.path.join(output_folder, modality)
@@ -182,10 +183,10 @@ if __name__ == "__main__":
         writer = csv.writer(csvfile)
         writer.writerow(episode_data.split(","))
     # move the files from the buffer folder to the output folder
-    for modality in modalities:
-        subprocess.run(
-            ["mv","-f", f"{buffer_folder}/{modality}/{epid}.*", f"{output_folder}/{modality}"],
+    for i in range(len(modalities)):
+        p = subprocess.run(
+            ["mv","-f", f"{buffer_folder}/{modalities[i]}/{epid}.{extensions[i]}", f"{output_folder}/{modalities[i]}/"],
             check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
         )

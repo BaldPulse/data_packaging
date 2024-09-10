@@ -82,7 +82,7 @@ def signal_handler(sig, frame):
             force_exit = input("Some threads are still running. Do you want to force exit? (y/n) ")
             if force_exit.lower() == "y":
                 print("Force exiting...")
-                sys.exit(0)
+                break
             else:
                 print("waiting for threads to finish to exit gracefully...")
     # write the exit state to the cache file
@@ -92,6 +92,13 @@ def signal_handler(sig, frame):
         sorted_bag_on_hand = sorted([bag for bag in thread_bag_on_hand if bag is not None])
         for bag in sorted_bag_on_hand:
             f.write(f"{bag}\n")
+        # also write all the bags in the queue
+        while not bag_queue.empty():
+            bag = bag_queue.get()
+            f.write(f"{bag}\n")
+        # as well as the latest bag date
+        f.write(f"{latest_bag_date}\n")
+            
     # exit the program
     print("\033[92m" + "Process exited gracefully" + "\033[0m")
     sys.exit(0)
@@ -103,9 +110,9 @@ def recover_from_cache(cache_file):
         with open(cache_file, "r") as f:
             lines = f.readlines()
         if lines:
-            latest_bag_date = lines[-1].split("/")[-1].split(".")[0].strip # the last line is the latest bag date
+            latest_bag_date = lines[-1].strip() # the last line is the latest bag date
         # add the bags to the queue
-        for line in lines:
+        for line in lines[:-1]:
             bag_queue.put(line.strip())
         # the date is in the format YYYY-MM-DD-HH-MM-SS
     # check if the date is valid
@@ -157,6 +164,14 @@ if __name__ == "__main__":
         # also create a log file in the buffer folder for verbose output
         log_file = os.path.join(buffer_folder, "log.txt")
     
+    # create the folder structures in each of the output and buffer folders
+    modalities = ["motion_capture", "camera_accel", "camera_gyro", "color", "depth"]
+    for folder in [output_folder, buffer_folder]:
+        for modality in modalities:
+            modality_folder = os.path.join(folder, modality)
+            if not os.path.exists(modality_folder):
+                os.makedirs(modality_folder)
+    
     #TODO: get current date and only process bags that are generated today
     
     # ----------------------------- configuration complete -----------------------------
@@ -165,10 +180,10 @@ if __name__ == "__main__":
     # create the consumer threads
     print(f'Starting {num_workers} consumer threads...')
     for i in range(num_workers):
+        thread_bag_on_hand.append(None)
         thread = threading.Thread(target=consumer, args=(i, output_folder, buffer_folder, log_file, compress_depth, verbose), daemon=True)
         thread.start()
         thread_pool.append(thread)
-        thread_bag_on_hand.append(None)
 
     # set the signal handler
     import signal
