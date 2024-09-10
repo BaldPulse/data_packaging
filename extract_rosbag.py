@@ -51,7 +51,7 @@ class Extractor():
         # time stamp data for color images
         color_time_stamps = []
         metadata = {
-            "rosbag_filename": bag_name
+            "rosbag_filename": bag_name.split('/')[-1]
         }
         modalities = {
             "camera_accel": {"frames": 0, "sensor_model": "Orbbec Gemini 2 L"},
