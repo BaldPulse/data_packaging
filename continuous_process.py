@@ -11,6 +11,7 @@ import queue
 
 bag_queue = queue.Queue()
 stop_flag = threading.Event()
+thread_pool = []
 
 def run_process(command, working_directory, verbose = False):
     if verbose:
@@ -39,18 +40,6 @@ def find_new_bags(data_folder, latest_bag_date):
             new_bags.append(bag_file)
     return new_bags
 
-def process_bag(working_directory, bag_file, output_folder, compress_depth, verbose=False):
-    command = f"python3 extract_rosbag.py {bag_file} {output_folder} \
-    {'--compress_depth' if compress_depth else ''}"
-    command_with_args = shlex.split(command)
-    if verbose:
-        print(f"Processing {bag_file}...")
-    process = subprocess.Popen(command_with_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=working_directory)
-    output, error = process.communicate()
-    # wait for the process to finish
-    while process.poll() is None:
-        time.sleep(1)
-    
 def consumer(consumer_id, output_folder, log_file, compress_depth=False, verbose=False):
     while not stop_flag.is_set():
         try:
@@ -134,6 +123,8 @@ if __name__ == "__main__":
     def signal_handler(sig, frame):
         # print a line in green color
         print("\033[92m" + "Exit command recieved..." + "\033[0m")
+        # set the stop flag
+        stop_flag.set()
         # scrub the buffer folder
         print("Scrubbing buffer folder...")
         subprocess.run(["rm", "-rf", f"{args.buffer_folder}/*"], check=True)
@@ -141,11 +132,36 @@ if __name__ == "__main__":
         # write the latest bag date to the cache file
         with open(cache_file, "w") as f:
             f.write(latest_bag_date)
+        # wait for the threads to finish for 20 seconds
+        print("Waiting for threads to finish...")
+        for thread in thread_pool:
+            thread.join(timeout=20)
+        # check if the threads are still alive
+        for thread in thread_pool:
+            if thread.is_alive():
+                # ask if the user wants to force exit
+                force_exit = input("Some threads are still running. Do you want to force exit? (y/n) ")
+                if force_exit.lower() == "y":
+                    # kill the threads
+                    for thread in thread_pool:
+                        thread.kill()
+                else:
+                    print("waiting for threads to finish to exit gracefully...")
         # exit the program
         sys.exit(0)
     # ----------------------------- configuration complete -----------------------------
     if latest_bag_date is None:
         latest_bag_date = "0000-00-00-00-00-00"
+    # create the consumer threads
+    print(f'Starting {num_workers} consumer threads...')
+    for i in range(num_workers):
+        thread = threading.Thread(target=consumer, args=(i, output_folder, log_file, compress_depth, verbose), daemon=True)
+        thread.start()
+        thread_pool.append(thread)
+
+    # set the signal handler
+    import signal
+    signal.signal(signal.SIGINT, signal_handler)
     # main execution loop for producer
     while True:
         # get the list of new bags
