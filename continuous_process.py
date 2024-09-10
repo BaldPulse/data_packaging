@@ -12,6 +12,7 @@ import queue
 bag_queue = queue.Queue()
 stop_flag = threading.Event()
 thread_pool = []
+thread_bag_on_hand = []
 
 def run_process(command, working_directory, verbose = False):
     if verbose:
@@ -51,23 +52,47 @@ def consumer(consumer_id, output_folder, log_file, compress_depth=False, verbose
                 print(f"Processing {bag_file}...")
             process = subprocess.Popen(command_with_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             # wait for the process to finish
-            while process.poll() is None:
-                # if the stop flag is set, kill the process and exit
-                if stop_flag.is_set():
-                    process.kill()
-                    return
-                # otherwise, sleep for 1 second
-                time.sleep(1)
+            process.wait()
             # if the verbose flag is set, write the output to the log file
             if verbose:
                 with open(log_file, "a") as f:
                     f.write(f"Consumer {consumer_id} output: {process.stdout.read()}")
                     f.write(f"Consumer {consumer_id} error: {process.stderr.read()}")
+            # mark the task as done
+            bag_queue.task_done()
+            thread_bag_on_hand[consumer_id] = bag_file.split("/")[-1].split(".")[0]
         except queue.Empty:
             # if the queue is empty, sleep for 4 second
             time.sleep(4)
 
-
+def signal_handler(sig, frame):
+    # print a line in green color
+    print("\033[92m" + "Exit command recieved..." + "\033[0m")
+    # set the stop flag
+    stop_flag.set()
+    # scrub the buffer folder
+    print("Scrubbing buffer folder...")
+    subprocess.run(["rm", "-rf", f"{args.buffer_folder}/*"], check=True)
+    # wait for the threads to finish for 20 seconds
+    print("Waiting for threads to finish...")
+    for thread in thread_pool:
+        thread.join(timeout=20)
+    # check if the threads are still alive
+    for thread in thread_pool:
+        if thread.is_alive():
+            # ask if the user wants to force exit
+            force_exit = input("Some threads are still running. Do you want to force exit? (y/n) ")
+            if force_exit.lower() == "y":
+                print("Force exiting...")
+                sys.exit(0)
+            else:
+                print("waiting for threads to finish to exit gracefully...")
+    # write the latest bag date to the cache file
+    print("Writing latest bag date to the cache file...")
+    with open(cache_file, "w") as f:
+        f.write(thread_bag_on_hand.sort()[-1]) # we want the latest
+    # exit the program
+    sys.exit(0)
 
 
 if __name__ == "__main__":
@@ -120,35 +145,7 @@ if __name__ == "__main__":
 
     
     #TODO: get current date and only process bags that are generated today
-    def signal_handler(sig, frame):
-        # print a line in green color
-        print("\033[92m" + "Exit command recieved..." + "\033[0m")
-        # set the stop flag
-        stop_flag.set()
-        # scrub the buffer folder
-        print("Scrubbing buffer folder...")
-        subprocess.run(["rm", "-rf", f"{args.buffer_folder}/*"], check=True)
-        print("Writing latest bag date to the cache file...")
-        # write the latest bag date to the cache file
-        with open(cache_file, "w") as f:
-            f.write(latest_bag_date)
-        # wait for the threads to finish for 20 seconds
-        print("Waiting for threads to finish...")
-        for thread in thread_pool:
-            thread.join(timeout=20)
-        # check if the threads are still alive
-        for thread in thread_pool:
-            if thread.is_alive():
-                # ask if the user wants to force exit
-                force_exit = input("Some threads are still running. Do you want to force exit? (y/n) ")
-                if force_exit.lower() == "y":
-                    # kill the threads
-                    for thread in thread_pool:
-                        thread.kill()
-                else:
-                    print("waiting for threads to finish to exit gracefully...")
-        # exit the program
-        sys.exit(0)
+    
     # ----------------------------- configuration complete -----------------------------
     if latest_bag_date is None:
         latest_bag_date = "0000-00-00-00-00-00"
@@ -158,6 +155,7 @@ if __name__ == "__main__":
         thread = threading.Thread(target=consumer, args=(i, output_folder, log_file, compress_depth, verbose), daemon=True)
         thread.start()
         thread_pool.append(thread)
+        thread_bag_on_hand.append(None)
 
     # set the signal handler
     import signal
