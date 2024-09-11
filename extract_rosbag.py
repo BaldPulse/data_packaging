@@ -1,6 +1,7 @@
 import os
 import csv
 import cv2
+import sys
 import rosbag
 import subprocess
 from tqdm import tqdm
@@ -27,6 +28,12 @@ class Extractor():
         except:
             raise ValueError(f"Bag file {bag_name} not found")
         #todo: maybe we can parameterize topic names
+
+        start_time = bag_file.get_start_time()
+        end_time = bag_file.get_end_time()
+        if end_time - start_time > 120:
+            print(f"Episode {bag_name} duration is greater than 2 minutes")
+            sys.exit(0)
         # create appropriate csv files
         camera_accel_csv = open(os.path.join(output_directory, 'camera_accel',f"{episode_id}.csv"), 'w')
         camera_gyro_csv = open(os.path.join(output_directory, 'camera_gyro',f"{episode_id}.csv"), 'w')
@@ -50,6 +57,7 @@ class Extractor():
 
         # time stamp data for color images
         color_time_stamps = []
+        mocap_time_stamps = []
         metadata = {
             "rosbag_filename": bag_name.split('/')[-1]
         }
@@ -60,8 +68,6 @@ class Extractor():
             "depth": {"frames": 0, "resolution": "1280*800", "sensor_model": "Orbbec Gemini 2 L"},
             "motion_capture": {"frames": 0, "sensor_model": "viryn full-body inertial motion capture suit"}
         }
-        start_time = bag_file.get_start_time()
-        end_time = bag_file.get_end_time()
         episode_data = episode_id + ", " + str(int(end_time - start_time)) + ", 5, " + str(metadata).replace(",", ";") + ", "
         for topic, msg, t in tqdm(bag_file.read_messages()):
             timestamp_ros = f"{t.secs}.{t.nsecs:09d}"
@@ -91,6 +97,7 @@ class Extractor():
                 frame_data = self.utils.extract_vdmsg_bag_position_msg_frame_data(msg)
                 motionCapture_writer.writerow([timestamp_ros] + frame_data)
                 modalities["motion_capture"]["frames"] += 1
+                mocap_time_stamps.append(timestamp_ros)
             
             # and non csv data
             elif topic == "/camera/color/image_raw/compressed":
@@ -121,6 +128,15 @@ class Extractor():
         camera_gyro_csv.close()
         motionCapture_scv.close()
 
+        # check if there are any motion capture data
+        if len(mocap_time_stamps)==0:
+            print(f"{bag_name} no MoCap data found")
+            sys.exit(0)
+        diff = np.diff(mocap_time_stamps)
+        diff_std = np.std(diff)
+        if diff_std > 0.05: #TODO: this value probably needs to be tuned
+            print(f"{bag_name} MoCap interval inconsistent")
+            sys.exit(0)
         # compress color images to mp4
         self.utils.compress_images_to_mp4(color_time_stamps, output_color_png_dir, os.path.join(output_directory, "color"), episode_id)
         # tar depth images
@@ -137,7 +153,7 @@ class Extractor():
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
-        # return high level episode data
+        # return high level episode data 
         return episode_data
 
 if __name__ == "__main__":
