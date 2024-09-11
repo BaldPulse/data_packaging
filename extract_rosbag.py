@@ -97,7 +97,7 @@ class Extractor():
                 frame_data = self.utils.extract_vdmsg_bag_position_msg_frame_data(msg)
                 motionCapture_writer.writerow([timestamp_ros] + frame_data)
                 modalities["motion_capture"]["frames"] += 1
-                mocap_time_stamps.append(timestamp_ros)
+                mocap_time_stamps.append(float(timestamp_ros))
             
             # and non csv data
             elif topic == "/camera/color/image_raw/compressed":
@@ -173,10 +173,11 @@ if __name__ == "__main__":
     buffer_folder = args.buffer_folder
     compress_depth = args.compress_depth
 
-    tname = bag_name.split('/')[-1].split('.')[0]
-    t = datetime.datetime.strptime(tname, "%Y-%m-%d-%H-%M-%S")
-    t = time.mktime(t.timetuple())
-    epid = str(uuid.uuid1(node=uuid.getnode(),clock_seq=int(t)))
+    # tname = bag_name.split('/')[-1].split('.')[0]
+    # t = datetime.datetime.strptime(tname, "%Y-%m-%d-%H-%M-%S")
+    # t = time.mktime(t.timetuple())
+    # epid = str(uuid.uuid1(node=uuid.getnode(),clock_seq=int(t)))
+    epid = str(uuid.uuid1()) # this is probably better than the above because it considers time zones
     modalities = ["motion_capture", "camera_accel", "camera_gyro", "color", "depth"]
     extensions = ["csv", "csv", "csv", "mp4", "tar"]
     # create the folder structure

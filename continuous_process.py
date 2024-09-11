@@ -50,8 +50,9 @@ def consumer(consumer_id, output_folder, buffer_folder, compress_depth=False, ve
             return # exit the thread
         try:
             bag_file = bag_queue.get(timeout=1)
+            bag_date = "-".join(bag_file.split("/")[-1].split(".")[0].split("-")[:3])
             thread_bag_on_hand[consumer_id] = bag_file
-            command = f"python3 extract_rosbag.py {bag_file} {output_folder} {buffer_folder} \
+            command = f"python3 /data_packaging/extract_rosbag.py {bag_file} {os.path.join(output_folder, bag_date)} {buffer_folder} \
             {'--compress_depth' if compress_depth else ''}"
             command_with_args = shlex.split(command)
             if verbose:
@@ -206,6 +207,9 @@ if __name__ == "__main__":
             latest_bag_date = new_bags[-1].split("/")[-1].split(".")[0]
         # add the new bags to the queue
         for bag in new_bags:
+            bag_date = "-".join(bag.split("/")[-1].split(".")[0].split("-")[:3])
+            if not os.path.exists(os.path.join(output_folder, bag_date)):
+                os.makedirs(os.path.join(output_folder, bag_date))
             bag_queue.put(bag)
 
     stop_flag.set()
@@ -215,11 +219,11 @@ if __name__ == "__main__":
     print("\033[91m" + "Error caught in process" + "\033[0m")
     print("Caching exit state...")
     with open(cache_file, "w") as f:
-        # sort the thread_bag_on_hand list ignoring None values
+        # sort thread_bag_on_hand list ignoring None values
         sorted_bag_on_hand = sorted([bag for bag in thread_bag_on_hand if bag is not None])
         for bag in sorted_bag_on_hand:
             f.write(f"{bag}\n")
-        # also write all the bags in the queue
+        # also write all bags in the queue
         while not bag_queue.empty():
             bag = bag_queue.get()
             f.write(f"{bag}\n")
