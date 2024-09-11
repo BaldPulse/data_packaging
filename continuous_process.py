@@ -147,6 +147,7 @@ if __name__ == "__main__":
     num_workers = args.num_workers
     verbose = args.verbose
     compress_depth = args.compress_depth
+    modalities = ["motion_capture", "camera_accel", "camera_gyro", "color", "depth"]
 
     # check if the data folder exists
     if not os.path.exists(data_folder):
@@ -169,15 +170,11 @@ if __name__ == "__main__":
         print(f"Latest bag date: {latest_bag_date}")
         # also create a log file in the buffer folder for verbose output
         log_file = os.path.join(buffer_folder, "log.txt")
-    
-    # create the folder structures in each of the output and buffer folders
-    modalities = ["motion_capture", "camera_accel", "camera_gyro", "color", "depth"]
-    for folder in [output_folder, buffer_folder]:
-        for modality in modalities:
-            modality_folder = os.path.join(folder, modality)
-            if not os.path.exists(modality_folder):
-                os.makedirs(modality_folder)
-    
+    folder = buffer_folder
+    for modality in modalities:
+        modality_folder = os.path.join(folder, modality)
+        if not os.path.exists(modality_folder):
+            os.makedirs(modality_folder)
     #TODO: get current date and only process bags that are generated today
     
     # ----------------------------- configuration complete -----------------------------
@@ -209,7 +206,13 @@ if __name__ == "__main__":
         for bag in new_bags:
             bag_date = "-".join(bag.split("/")[-1].split(".")[0].split("-")[:3])
             if not os.path.exists(os.path.join(output_folder, bag_date)):
-                os.makedirs(os.path.join(output_folder, bag_date))
+                folder = os.path.join(output_folder, bag_date)
+                os.makedirs(folder)
+                # create the folder structures in each of the output and buffer folders
+                for modality in modalities:
+                    modality_folder = os.path.join(folder, modality)
+                    if not os.path.exists(modality_folder):
+                        os.makedirs(modality_folder)
             bag_queue.put(bag)
 
     stop_flag.set()
