@@ -14,7 +14,7 @@ CONTAINER_REPO_FOLDER="/data_packaging" # Folder inside the container
 NUM_THREADS="2" #TODO: Number of threads used by the data packager
 
 # Start the Docker container in the background with volume mapping
-docker run -it --rm \
+docker run --rm \
     --name $CONTAINER_NAME \
     -v $HOST_DATA_FOLDER:$CONTAINER_DATA_FOLDER \
     -v $HOST_OUTPUT_FOLDER:$CONTAINER_OUTPUT_FOLDER\
@@ -24,9 +24,9 @@ docker run -it --rm \
     python3 /data_packaging/continuous_process.py -d /data -o /output -b /buffer -n $NUM_THREADS &
 
 process_pid=$! # Capture the process ID
-
+echo "process_pid: $process_pid"
 # Specify the specific time of day to interrupt the process (24-hour format)
-specific_time="15:00" # For example, 3:00 PM
+specific_time="10:21" # For example, 3:00 PM
 
 # Timing loop to check the system clock
 while :; do

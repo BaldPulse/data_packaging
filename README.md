@@ -9,4 +9,4 @@ run `python3 continuous_process.py -h`
 
 ## Docker 
 Alternatively, you can use docker.
-Modify `docker_run.sh` and run the script. Modify some parameters in the scripts before running.
+Modify `docker_run.sh` and run the script with `bash docker_run.sh`.
