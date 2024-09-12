@@ -84,7 +84,7 @@ def signal_handler(sig, frame):
     for thread in thread_pool:
         if thread.is_alive():
             # ask if the user wants to force exit
-            force_exit = input("Some threads are still running. Do you want to force exit? (y/n) ")
+            force_exit = input("Some threads are still running. This usually means that some important files are being moved. Do you want to force exit? (y/n) ")
             if force_exit.lower() == "y":
                 print("Force exiting...")
                 break
