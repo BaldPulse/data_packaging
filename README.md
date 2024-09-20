@@ -17,7 +17,7 @@ Directory layout
 │   └── ...
 └── ...
 ```
-The above diagram shows the directory layout for the data of a single task. Every task directory contains an `episodes.csv` file and multiple modality directories. `episodes.csv` contains relavent information regarding the episodes. Each modality directory contains data files for that modality. The data files are named according to the episode id, which is stored in `episodes.csv`.
+The above diagram shows the directory layout for the data of a single task. Every task directory contains an `episodes.csv` file and multiple modality directories. `episodes.csv` contains relavent information regarding the episodes. Each modality directory contains data files for that modality. The data files are named according to the episode id, which is stored in `episodes.csv`. Refer to DataFolderStructure.pdf for more details. 
 
 ## Running with python3
 install [ros noetic] (http://wiki.ros.org/noetic/Installation/Ubuntu) \
