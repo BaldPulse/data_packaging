@@ -28,13 +28,6 @@ def run_process(command, working_directory, verbose = False):
             print(f"Error: {error.strip()}")
 
 def find_new_bags(data_folder, latest_bag_date):
-<<<<<<< HEAD
-    bag_files = []
-    for root, dirs, files in os.walk(data_folder):
-        for file in files:
-            if file.endswith(".bag"):
-                bag_files.append(os.path.join(root, file))
-=======
     # find the specific date
     if args.date_dir == ["all"]:
         selected_sequence = os.listdir(data_folder)
@@ -46,7 +39,6 @@ def find_new_bags(data_folder, latest_bag_date):
         for file in sorted(os.listdir(os.path.join(data_folder, dirs))):
             if file.endswith(".bag"):
                 bag_files.append(os.path.join(data_folder, dirs, file))
->>>>>>> master
     # sort the bag files by date
     bag_files.sort()
     new_bags = []
@@ -150,10 +142,7 @@ if __name__ == "__main__":
     parser.add_argument('-d', '--data_folder', type=str, help='The top folder containing ROS bags.')
     parser.add_argument('-o', '--output_folder', type=str, help='The folder to store the output.')
     parser.add_argument('-b', '--buffer_folder', type=str, help='The folder to store the buffer files.')
-<<<<<<< HEAD
-=======
     parser.add_argument('-r', '--date_dir', nargs="+", help='The specific dates you want to use')
->>>>>>> master
     parser.add_argument('-n', '--num_workers', type=int, default=4, help='The number of workers to use.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Print verbose output.', default=False)
     parser.add_argument('-c', '--compress_depth', action='store_true', help='Compress depth images to JXL format.', default=False)
