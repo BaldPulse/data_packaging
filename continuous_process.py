@@ -198,6 +198,7 @@ if __name__ == "__main__":
     # set the signal handler
     import signal
     signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler) # for docker
     # main execution loop for producer
     while True:
         # check if there is a problem with the threads
