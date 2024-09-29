@@ -42,11 +42,15 @@ class Extractor():
             raise ValueError(f"Bag file {bag_name} not found")
         
         #check duration
-        start_time = bag_file.get_start_time()
-        end_time = bag_file.get_end_time()
-        if end_time - start_time > 120:
-            print(f"Episode {bag_name} duration is greater than 2 minutes")
-            os.system(f"rm {bag_name}")
+        try:
+            start_time = bag_file.get_start_time()
+            end_time = bag_file.get_end_time()
+            if end_time - start_time > 120:
+                print(f"Episode {bag_name} duration is greater than 2 minutes")
+                os.system(f"rm {bag_name}")
+                self.error_exit(episode_id, output_directory)
+        except Exception as e:
+            print(f"Error getting bag start/end time for {bag_name}: {e}")
             self.error_exit(episode_id, output_directory)
         # create appropriate csv files
         camera_accel_csv = open(os.path.join(output_directory, 'camera_accel',f"{episode_id}.csv"), 'w')
@@ -136,16 +140,17 @@ class Extractor():
                     )
                     os.remove(png_path)
                 modalities["depth"]["frames"] += 1
+        # check if all modalities have data
+        for modality in modalities:
+            if modalities[modality]["frames"] == 0:
+                print(f"{bag_name} no {modality} data found")
+                self.error_exit(episode_id, output_directory)
         episode_data += str(modalities).replace(",", ";")
         # close csv files
         camera_accel_csv.close()
         camera_gyro_csv.close()
         motionCapture_csv.close()
 
-        # check if there are any motion capture data
-        if len(mocap_time_stamps)==0:
-            print(f"{bag_name} no MoCap data found")
-            self.error_exit(episode_id, output_directory)
         if self.check_timestamp(np.array(mocap_time_stamps)) == False:
             print(f"{bag_name} timestamp is not valid")
             self.error_exit(episode_id, output_directory)
