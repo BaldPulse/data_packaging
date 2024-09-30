@@ -6,7 +6,8 @@ import numpy as np
 
 class Utils():
     def __init__(self):
-        print("Utils Init")  # Print a message when initializing
+        pass
+        # print("Utils Init")  # Print a message when initializing
 
     # Extract position and quaternion messages and return a flattened array
     def extract_vdmsg_bag_position_msg(self, msg_position_location, msg_position_location_quaternion):
