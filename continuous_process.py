@@ -69,8 +69,16 @@ def consumer(consumer_id, output_folder, buffer_folder, compress_depth=False, ve
             if verbose:
                 with open(log_file, "a") as f:
                     f.write(f"------{datetime.datetime.now()}------\n")
-                    f.write(f"Consumer {consumer_id} output: {process.stdout.read()}")
-                    f.write(f"Consumer {consumer_id} error: {process.stderr.read()}")
+                    stdout_output = process.stdout.read()
+                    if stdout_output:
+                        f.write(f"Consumer {consumer_id} output: {stdout_output}")
+                    else:
+                        f.write(f"Consumer {consumer_id} output: \n")
+                    stderr_output = process.stderr.read()
+                    if stderr_output:
+                        f.write(f"Consumer {consumer_id} error: {stderr_output}")
+                    else:
+                        f.write(f"Consumer {consumer_id} error: \n")
             if process.returncode == 0:
                 bag_queue.task_done() # mark the task as done
                 thread_bag_on_hand[consumer_id] = None # this thread is free
