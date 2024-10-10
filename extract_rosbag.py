@@ -39,7 +39,8 @@ class Extractor():
         try:
             bag_file = rosbag.Bag(bag_name, 'r')
         except:
-            raise ValueError(f"Bag file {bag_name} not found")
+            print(f"Bag file {bag_name} is unindexed or damaged")
+            self.error_exit(episode_id, output_directory)
         
         #check duration
         try:
